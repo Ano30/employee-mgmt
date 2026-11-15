@@ -15,7 +15,7 @@ supervisorRouter.get("/my-employees", authenticate, requireRole("supervisor"), a
         user: { select: { fullName: true, email: true, role: true } },
         location: { select: { name: true } },
         attendance: { orderBy: { clockedAt: "desc" }, take: 1 },
-        leaves: { where: { status: "approved" } } // Only show active leaves in the directory
+        leaves: { where: { status: "approved" } }
       }
     });
     res.json(employees);
@@ -58,7 +58,9 @@ supervisorRouter.get("/leaves", authenticate, requireRole("supervisor"), async (
         }
       },
       include: {
-        employee: { include: { user: { select: { fullName: true } } } }
+        employee: { 
+          include: { user: { select: { fullName: true } } } 
+        }
       },
       orderBy: { createdAt: "desc" },
     });
@@ -72,7 +74,7 @@ supervisorRouter.get("/leaves", authenticate, requireRole("supervisor"), async (
 // Approve or Reject a leave request
 supervisorRouter.patch("/leaves/:id", authenticate, requireRole("supervisor"), async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body; // "approved" or "rejected"
+  const { status } = req.body; 
   const supervisorId = (req as any).user.sub;
 
   if (!["approved", "rejected"].includes(status)) {
@@ -105,7 +107,7 @@ supervisorRouter.patch("/leaves/:id", authenticate, requireRole("supervisor"), a
   }
 });
 
-// Recall an employee who is currently on approved leave
+// Recall an employee
 supervisorRouter.post("/leaves/:id/recall", authenticate, requireRole("supervisor"), async (req, res) => {
   const { id } = req.params;
   const supervisorId = (req as any).user.sub;
