@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { login, changePassword } from "./auth.service";
-import { authenticate, AuthedRequest } from "./auth.middleware"; // Ensure this matches your file name (middleware.ts or auth.middleware.ts)
+import { authenticate, AuthedRequest } from "./middleware"; // Corrected import
 
 export const authRouter = Router();
 
