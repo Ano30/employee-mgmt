@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 
-export type Role = "director" | "hr" | "supervisor" | "employee";
+export type Role = "developer" | "director" | "hr" | "supervisor" | "employee";
 
 export interface JwtPayload {
   sub: number;
