@@ -5,27 +5,40 @@ import { authenticate, requireRole } from "../auth/middleware";
 
 export const directorRouter = Router();
 
-// Get all employees for a specific company (Director & HR)
+// Get ALL users (Employees, Supervisors, HR) for the company
 directorRouter.get("/all-employees", authenticate, requireRole("director", "hr"), async (req, res) => {
   const companyId = (req as any).user.companyId;
   try {
-    const employees = await prisma.employee.findMany({
-      where: { user: { companyId: companyId } },
+    const users = await prisma.user.findMany({
+      where: { companyId: companyId },
       include: {
-        user: { select: { fullName: true, email: true, role: true } },
-        location: { select: { name: true } },
-        // Fetch the full latest attendance log including GPS
-        attendance: { orderBy: { clockedAt: "desc" }, take: 1 },
-        leaves: { where: { status: "approved" } }
+        employeeProfile: {
+          include: {
+            location: { select: { name: true } },
+            attendance: { orderBy: { clockedAt: "desc" }, take: 1 },
+            leaves: { where: { status: "approved" } }
+          }
+        }
       }
     });
-    res.json(employees);
+
+    // Format the data so the frontend can read it easily
+    const formattedUsers = users.map(u => ({
+      userId: u.id,
+      name: u.fullName,
+      role: u.role,
+      location: u.employeeProfile?.location?.name || "N/A",
+      isOnLeave: (u.employeeProfile?.leaves?.length || 0) > 0,
+      latestClock: u.employeeProfile?.attendance?.[0] || null,
+    }));
+
+    res.json(formattedUsers);
   } catch (e) {
-    res.status(500).json({ error: "FAILED_TO_FETCH_EMPLOYEES" });
+    res.status(500).json({ error: "FAILED_TO_FETCH_USERS" });
   }
 });
 
-// Change any employee's password (For Director/HR)
+// Change any user's password (For Director/HR)
 directorRouter.post("/change-password", authenticate, requireRole("director", "hr"), async (req, res) => {
   const { userId, newPassword } = req.body;
   try {
