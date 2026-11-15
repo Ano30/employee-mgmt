@@ -5,6 +5,16 @@ import { authenticate, requireRole } from "../auth/middleware";
 
 export const developerRouter = Router();
 
+// PUBLIC ROUTE: For the login page dropdown
+developerRouter.get("/companies/public", async (req, res) => {
+  try {
+    const companies = await prisma.company.findMany({ select: { id: true, name: true } });
+    res.json(companies);
+  } catch (e) {
+    res.status(500).json({ error: "FAILED_TO_FETCH_COMPANIES" });
+  }
+});
+
 // Create a new company and its Director
 developerRouter.post("/companies", authenticate, requireRole("developer"), async (req, res) => {
   const { companyName, directorName, directorEmail, directorPassword } = req.body;
@@ -12,9 +22,7 @@ developerRouter.post("/companies", authenticate, requireRole("developer"), async
     const passwordHash = await bcrypt.hash(directorPassword, 12);
     
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Create Company
       const company = await tx.company.create({ data: { name: companyName } });
-      // 2. Create Director assigned to this company
       const director = await tx.user.create({
         data: {
           fullName: directorName,
@@ -29,7 +37,7 @@ developerRouter.post("/companies", authenticate, requireRole("developer"), async
     res.json(result);
   } catch (e: any) {
     if (e.code === "P2002") return res.status(400).json({ error: "EMAIL_EXISTS" });
-    res.status(500).json({ error: "FAILED_TO_CREATE_COMPANY", details: e.message });
+    res.status(500).json({ error: "FAILED_TO_CREATE_COMPANY" });
   }
 });
 
