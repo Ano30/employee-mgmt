@@ -13,8 +13,8 @@ directorRouter.get("/all-employees", authenticate, requireRole("director", "hr")
       where: { user: { companyId: companyId } },
       include: {
         user: { select: { fullName: true, email: true, role: true } },
-        supervisor: { select: { fullName: true } },
         location: { select: { name: true } },
+        // Fetch the full latest attendance log including GPS
         attendance: { orderBy: { clockedAt: "desc" }, take: 1 },
         leaves: { where: { status: "approved" } }
       }
@@ -43,7 +43,7 @@ directorRouter.post("/change-password", authenticate, requireRole("director", "h
 // Add a new HR or Supervisor (used by Director)
 directorRouter.post("/users", authenticate, requireRole("director"), async (req, res) => {
   const { fullName, email, password, role } = req.body;
-  const companyId = (req as any).user.companyId; // Get the director's company
+  const companyId = (req as any).user.companyId;
 
   if (!["hr", "supervisor"].includes(role)) {
     return res.status(400).json({ error: "INVALID_ROLE" });
