@@ -5,27 +5,14 @@ import { authenticate, requireRole } from "../auth/middleware";
 
 export const directorRouter = Router();
 
-// View everyone currently on approved leave
-directorRouter.get("/on-leave", authenticate, requireRole("director"), async (req, res) => {
-  try {
-    const onLeave = await prisma.leaveRequest.findMany({
-      where: { status: "approved" },
-      include: {
-        employee: { include: { user: { select: { fullName: true } } } }
-      },
-    });
-    res.json(onLeave);
-  } catch (e) {
-    res.status(500).json({ error: "FAILED_TO_FETCH_ON_LEAVE" });
-  }
-});
-
-// Get all employees and their current status (NEW ROUTE)
-directorRouter.get("/all-employees", authenticate, requireRole("director"), async (req, res) => {
+// Get all employees for a specific company (Director & HR)
+directorRouter.get("/all-employees", authenticate, requireRole("director", "hr"), async (req, res) => {
+  const companyId = (req as any).user.companyId;
   try {
     const employees = await prisma.employee.findMany({
+      where: { user: { companyId: companyId } },
       include: {
-        user: { select: { fullName: true, email: true } },
+        user: { select: { fullName: true, email: true, role: true } },
         supervisor: { select: { fullName: true } },
         location: { select: { name: true } },
         attendance: { orderBy: { clockedAt: "desc" }, take: 1 },
@@ -38,57 +25,38 @@ directorRouter.get("/all-employees", authenticate, requireRole("director"), asyn
   }
 });
 
-// Add a new HR or Supervisor
-directorRouter.post("/users", authenticate, requireRole("director"), async (req, res) => {
-  const { fullName, email, password, role } = req.body;
-
-  if (!["hr", "supervisor"].includes(role)) {
-    return res.status(400).json({ error: "DIRECTOR_CAN_ONLY_CREATE_HR_OR_SUPERVISOR" });
-  }
-
+// Change any employee's password (For Director/HR)
+directorRouter.post("/change-password", authenticate, requireRole("director", "hr"), async (req, res) => {
+  const { userId, newPassword } = req.body;
   try {
-    const passwordHash = await bcrypt.hash(password, 12);
-    const newUser = await prisma.user.create({
-      data: { fullName, email, passwordHash, role },
-    });
-    res.json({ id: newUser.id, email: newUser.email, role: newUser.role });
-  } catch (e: any) {
-    if (e.code === "P2002") return res.status(400).json({ error: "EMAIL_ALREADY_EXISTS" });
-    res.status(500).json({ error: "FAILED_TO_CREATE_USER" });
-  }
-});
-
-// Change a user's password
-directorRouter.patch("/users/:id/password", authenticate, requireRole("director"), async (req, res) => {
-  const { id } = req.params;
-  const { newPassword } = req.body;
-
-  if (!newPassword || newPassword.length < 8) {
-    return res.status(400).json({ error: "WEAK_PASSWORD" });
-  }
-
-  try {
-    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const hash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
-      where: { id: Number(id) },
-      data: { passwordHash },
+      where: { id: userId },
+      data: { passwordHash: hash }
     });
-    res.json({ ok: true, message: "PASSWORD_UPDATED" });
+    res.json({ message: "Password updated successfully" });
   } catch (e) {
     res.status(500).json({ error: "FAILED_TO_UPDATE_PASSWORD" });
   }
 });
 
-// Soft Delete a user (Deactivate them)
-directorRouter.delete("/users/:id", authenticate, requireRole("director"), async (req, res) => {
-  const { id } = req.params;
+// Add a new HR or Supervisor (used by Director)
+directorRouter.post("/users", authenticate, requireRole("director"), async (req, res) => {
+  const { fullName, email, password, role } = req.body;
+  const companyId = (req as any).user.companyId; // Get the director's company
+
+  if (!["hr", "supervisor"].includes(role)) {
+    return res.status(400).json({ error: "INVALID_ROLE" });
+  }
+
   try {
-    await prisma.user.update({
-      where: { id: Number(id) },
-      data: { isActive: false },
+    const passwordHash = await bcrypt.hash(password, 12);
+    const newUser = await prisma.user.create({
+      data: { fullName, email, passwordHash, role, companyId },
     });
-    res.json({ ok: true, message: "USER_DEACTIVATED" });
-  } catch (e) {
-    res.status(500).json({ error: "FAILED_TO_DELETE_USER" });
+    res.json({ id: newUser.id, email: newUser.email, role: newUser.role });
+  } catch (e: any) {
+    if (e.code === "P2002") return res.status(400).json({ error: "EMAIL_EXISTS" });
+    res.status(500).json({ error: "FAILED_TO_CREATE_USER" });
   }
 });
