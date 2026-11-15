@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  fullName     String   @map("full_name")
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  employeeProfile Employee? @relation("UserEmployee")
+  supervisorOf    Employee[] @relation("SupervisorEmployees")
+  createdLocations Location[] @relation("LocationCreator")
+  reviewedLeaves  LeaveRequest[] @relation("LeaveReviewer")
+  recalledLeaves  LeaveRequest[] @relation("LeaveRecaller")
+
+  @@map("users")
+}
+
+enum Role {
+  director
+  hr
+  supervisor
+  employee
+}
+
+model Location {
+  id           Int      @id @default(autoincrement())
+  name         String
+  latitude     Decimal  @db.Decimal(10, 7)
+  longitude    Decimal  @db.Decimal(10, 7)
+  radiusMeters Int      @default(100) @map("radius_meters")
+  createdById  Int      @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  createdBy User       @relation("LocationCreator", fields: [createdById], references: [id])
+  employees Employee[]
+
+  @@map("locations")
+}
+
+model Employee {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @unique @map("user_id")
+  supervisorId Int      @map("supervisor_id")
+  locationId   Int      @map("location_id")
+  employeeCode String   @unique @map("employee_code")
+  department   String
+  hiredAt      DateTime @default(now()) @map("hired_at")
+
+  user       User          @relation("UserEmployee", fields: [userId], references: [id])
+  supervisor User          @relation("SupervisorEmployees", fields: [supervisorId], references: [id])
+  location   Location      @relation(fields: [locationId], references: [id])
+  attendance AttendanceLog[]
+  leaves     LeaveRequest[]
+
+  @@map("employees")
+}
+
+model AttendanceLog {
+  id               Int      @id @default(autoincrement())
+  employeeId       Int      @map("employee_id")
+  clockType        String   @map("clock_type")
+  latitude         Decimal  @db.Decimal(10, 7)
+  longitude        Decimal  @db.Decimal(10, 7)
+  distanceMeters   Decimal  @db.Decimal(8, 2) @map("distance_meters")
+  isWithinGeofence Boolean  @map("is_within_geofence")
+  clockedAt        DateTime @default(now()) @map("clocked_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("attendance_logs")
+}
+
+model LeaveRequest {
+  id         Int      @id @default(autoincrement())
+  employeeId Int      @map("employee_id")
+  leaveType  String   @map("leave_type")
+  startDate  DateTime @map("start_date")
+  endDate    DateTime @map("end_date")
+  reason     String
+  status     String   @default("pending")
+  
+  reviewedById Int?     @map("reviewed_by")
+  reviewedAt   DateTime? @map("reviewed_at")
+  
+  recalledById Int?     @map("recalled_by")
+  recalledAt   DateTime? @map("recalled_at")
+  
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  reviewedBy User?    @relation("LeaveReviewer", fields: [reviewedById], references: [id])
+  recalledBy User?    @relation("LeaveRecaller", fields: [recalledById], references: [id])
+
+  @@map("leave_requests")
+}
