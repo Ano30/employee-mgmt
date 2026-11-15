@@ -3,7 +3,6 @@ import { prisma } from "../db";
 import { signToken, Role } from "./jwt";
 
 export async function login(email: string, password: string, selectedRole: Role, companyName?: string) {
-  // Find the user and include their company
   const user = await prisma.user.findFirst({
     where: { email },
     include: { company: true }
@@ -17,7 +16,6 @@ export async function login(email: string, password: string, selectedRole: Role,
 
   if (user.role !== selectedRole) throw new Error("ROLE_MISMATCH");
 
-  // If the user is not a developer, check if they belong to the selected company
   if (user.role !== "developer") {
     if (!companyName) throw new Error("COMPANY_REQUIRED");
     if (user.company?.name !== companyName) throw new Error("WRONG_COMPANY");
@@ -34,4 +32,18 @@ export async function login(email: string, password: string, selectedRole: Role,
     token,
     user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role, companyId: user.companyId },
   };
+}
+
+// ADDED BACK: changePassword function
+export async function changePassword(userId: number, currentPwd: string, newPwd: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error("NOT_FOUND");
+
+  const ok = await bcrypt.compare(currentPwd, user.passwordHash);
+  if (!ok) throw new Error("INVALID_CREDENTIALS");
+
+  if (newPwd.length < 8) throw new Error("WEAK_PASSWORD");
+
+  const hash = await bcrypt.hash(newPwd, 12);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
 }
