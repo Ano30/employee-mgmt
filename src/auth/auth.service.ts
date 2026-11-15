@@ -2,8 +2,9 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../db";
 import { signToken, Role } from "./jwt";
 
-export async function login(email: string, password: string, selectedRole: Role, companyName?: string) {
-  const user = await prisma.user.findFirst({
+export async function login(email: string, password: string, selectedRole: Role) {
+  // Find the user by email
+  const user = await prisma.user.findUnique({
     where: { email },
     include: { company: true }
   });
@@ -16,11 +17,7 @@ export async function login(email: string, password: string, selectedRole: Role,
 
   if (user.role !== selectedRole) throw new Error("ROLE_MISMATCH");
 
-  if (user.role !== "developer") {
-    if (!companyName) throw new Error("COMPANY_REQUIRED");
-    if (user.company?.name !== companyName) throw new Error("WRONG_COMPANY");
-  }
-
+  // Sign the token and include the companyId
   const token = signToken({ 
     sub: user.id, 
     role: user.role as Role, 
@@ -28,13 +25,20 @@ export async function login(email: string, password: string, selectedRole: Role,
     companyId: user.companyId 
   } as any);
 
+  // Return the user info, including the company name so the frontend can display it
   return {
     token,
-    user: { id: user.id, fullName: user.fullName, email: user.email, role: user.role, companyId: user.companyId },
+    user: { 
+      id: user.id, 
+      fullName: user.fullName, 
+      email: user.email, 
+      role: user.role, 
+      companyId: user.companyId,
+      companyName: user.company?.name || "System Developer"
+    },
   };
 }
 
-// ADDED BACK: changePassword function
 export async function changePassword(userId: number, currentPwd: string, newPwd: string) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("NOT_FOUND");

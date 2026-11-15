@@ -1,24 +1,22 @@
 import { Router } from "express";
 import { login, changePassword } from "./auth.service";
-import { authenticate, AuthedRequest } from "./middleware";
+import { authenticate, AuthedRequest } from "./auth.middleware"; // Ensure this matches your file name (middleware.ts or auth.middleware.ts)
 
 export const authRouter = Router();
 
 authRouter.post("/login", async (req, res) => {
-  const { email, password, role, companyName } = req.body ?? {};
+  const { email, password, role } = req.body ?? {};
   if (!email || !password || !role) {
     return res.status(400).json({ error: "MISSING_FIELDS" });
   }
   try {
-    const result = await login(email, password, role, companyName);
+    const result = await login(email, password, role);
     res.json(result);
   } catch (e: any) {
     const map: Record<string, number> = {
       INVALID_CREDENTIALS: 401,
       ACCOUNT_DISABLED: 403,
       ROLE_MISMATCH: 403,
-      COMPANY_REQUIRED: 400,
-      WRONG_COMPANY: 401
     };
     res.status(map[e.message] ?? 500).json({ error: e.message ?? "SERVER_ERROR" });
   }
