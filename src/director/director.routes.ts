@@ -5,12 +5,11 @@ import { authenticate, requireRole } from "../auth/middleware";
 
 export const directorRouter = Router();
 
-// Get ALL users for the company
 directorRouter.get("/all-employees", authenticate, requireRole("director", "hr"), async (req, res) => {
   const companyId = (req as any).user.companyId;
   try {
     const users = await prisma.user.findMany({
-      where: { companyId: companyId, isActive: true }, // Only show active users
+      where: { companyId: companyId },
       include: {
         employeeProfile: {
           include: {
@@ -27,6 +26,7 @@ directorRouter.get("/all-employees", authenticate, requireRole("director", "hr")
       name: u.fullName,
       email: u.email,
       role: u.role,
+      isActive: u.isActive,
       location: u.employeeProfile?.location?.name || "N/A",
       locationId: u.employeeProfile?.locationId || null,
       supervisorId: u.employeeProfile?.supervisorId || null,
@@ -40,20 +40,50 @@ directorRouter.get("/all-employees", authenticate, requireRole("director", "hr")
   }
 });
 
-// Edit a user
+// UPDATE USER (WITH ROLE CHANGE LOGIC)
 directorRouter.put("/users/:id", authenticate, requireRole("director", "hr"), async (req, res) => {
   const { id } = req.params;
   const { fullName, email, role, supervisorId, locationId } = req.body;
+  const currentUserId = (req as any).user.sub;
   
   try {
-    // 1. Update basic info
+    const targetUser = await prisma.user.findUnique({ 
+      where: { id: Number(id) },
+      include: { employeeProfile: true }
+    });
+    
+    if (!targetUser) return res.status(404).json({ error: "USER_NOT_FOUND" });
+    if (targetUser.role === "developer") return res.status(403).json({ error: "CANNOT_EDIT_DEVELOPER" });
+    if (targetUser.id === currentUserId) return res.status(403).json({ error: "CANNOT_EDIT_YOURSELF" });
+
+    const oldRole = targetUser.role;
+    const newRole = role;
+
+    // 1. Update the basic User details
     await prisma.user.update({
       where: { id: Number(id) },
-      data: { fullName, email, role }
+      data: { fullName, email, role: newRole }
     });
 
-    // 2. If it's an employee, update their supervisor and location
-    if (role === "employee") {
+    // 2. Handle Role Changes
+    if (oldRole === "employee" && newRole !== "employee") {
+      // PROMOTION: Delete their employee profile (removes location/supervisor tracking)
+      if (targetUser.employeeProfile) {
+        await prisma.employee.delete({ where: { id: targetUser.employeeProfile.id } });
+      }
+    } else if (oldRole !== "employee" && newRole === "employee") {
+      // DEMOTION: Create a new employee profile (need to assign supervisor and location)
+      await prisma.employee.create({
+        data: {
+          userId: targetUser.id,
+          employeeCode: `EMP-${targetUser.id}`, // Auto-generate code
+          department: "General",
+          supervisorId: Number(supervisorId),
+          locationId: Number(locationId)
+        }
+      });
+    } else if (newRole === "employee") {
+      // STILL AN EMPLOYEE: Update their existing supervisor and location
       await prisma.employee.update({
         where: { userId: Number(id) },
         data: { 
@@ -65,41 +95,51 @@ directorRouter.put("/users/:id", authenticate, requireRole("director", "hr"), as
 
     res.json({ message: "User updated successfully" });
   } catch (e: any) {
+    console.error(e);
     if (e.code === "P2002") return res.status(400).json({ error: "EMAIL_ALREADY_EXISTS" });
     res.status(500).json({ error: "FAILED_TO_UPDATE_USER" });
   }
 });
 
-// Soft Delete (Deactivate) a user
 directorRouter.delete("/users/:id", authenticate, requireRole("director", "hr"), async (req, res) => {
   const { id } = req.params;
+  const currentUserId = (req as any).user.sub;
+
   try {
-    await prisma.user.update({
-      where: { id: Number(id) },
-      data: { isActive: false } // Soft delete
-    });
-    res.json({ message: "User deactivated successfully" });
-  } catch (e) {
+    const targetUser = await prisma.user.findUnique({ where: { id: Number(id) }, include: { employeeProfile: true } });
+    if (!targetUser) return res.status(404).json({ error: "USER_NOT_FOUND" });
+    if (targetUser.role === "developer") return res.status(403).json({ error: "CANNOT_DELETE_DEVELOPER" });
+    if (targetUser.id === currentUserId) return res.status(403).json({ error: "CANNOT_DELETE_YOURSELF" });
+
+    if (targetUser.employeeProfile) {
+      await prisma.attendanceLog.deleteMany({ where: { employeeId: targetUser.employeeProfile.id } });
+      await prisma.leaveRequest.deleteMany({ where: { employeeId: targetUser.employeeProfile.id } });
+      await prisma.employee.delete({ where: { id: targetUser.employeeProfile.id } });
+    }
+
+    await prisma.employee.updateMany({ where: { supervisorId: targetUser.id }, data: { supervisorId: currentUserId } });
+    await prisma.user.delete({ where: { id: Number(id) } });
+    
+    res.json({ message: "User completely deleted from database" });
+  } catch (e: any) {
+    console.error(e);
     res.status(500).json({ error: "FAILED_TO_DELETE_USER" });
   }
 });
 
-// Change password
 directorRouter.post("/change-password", authenticate, requireRole("director", "hr"), async (req, res) => {
   const { userId, newPassword } = req.body;
   try {
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (targetUser?.role === "developer") return res.status(403).json({ error: "CANNOT_CHANGE_DEVELOPER_PASSWORD" });
     const hash = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash: hash }
-    });
+    await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
     res.json({ message: "Password updated successfully" });
   } catch (e) {
     res.status(500).json({ error: "FAILED_TO_UPDATE_PASSWORD" });
   }
 });
 
-// Create User
 directorRouter.post("/users", authenticate, requireRole("director"), async (req, res) => {
   const { fullName, email, password, role } = req.body;
   const companyId = (req as any).user.companyId;
